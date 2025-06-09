@@ -24,6 +24,37 @@ if ($result->num_rows == 0) {
     $conn->query("ALTER TABLE prenotazioni ADD COLUMN operatore_id INT, ADD FOREIGN KEY (operatore_id) REFERENCES operatori(id)");
 }
 
+// Create admin settings table if it doesn't exist
+$conn->query("CREATE TABLE IF NOT EXISTS admin_settings (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    setting_name VARCHAR(255) UNIQUE NOT NULL,
+    setting_value TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+)");
+
+// Handle toggle revenue visibility
+if (isset($_POST['toggle_revenue_visibility'])) {
+    $current_setting = $conn->query("SELECT setting_value FROM admin_settings WHERE setting_name = 'hide_revenue'");
+    if ($current_setting->num_rows > 0) {
+        $row = $current_setting->fetch_assoc();
+        $new_value = $row['setting_value'] == '1' ? '0' : '1';
+        $conn->query("UPDATE admin_settings SET setting_value = '$new_value' WHERE setting_name = 'hide_revenue'");
+    } else {
+        $conn->query("INSERT INTO admin_settings (setting_name, setting_value) VALUES ('hide_revenue', '1')");
+    }
+    header("Location: admin.php");
+    exit();
+}
+
+// Get revenue visibility setting
+$revenue_hidden = false;
+$revenue_setting = $conn->query("SELECT setting_value FROM admin_settings WHERE setting_name = 'hide_revenue'");
+if ($revenue_setting->num_rows > 0) {
+    $row = $revenue_setting->fetch_assoc();
+    $revenue_hidden = $row['setting_value'] == '1';
+}
+
 // Handle booking actions
 if (isset($_GET['action']) && isset($_GET['id'])) {
     $id = intval($_GET['id']);
@@ -552,6 +583,9 @@ body {
     margin-bottom: 1rem;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
 }
 
 .stat-card .value {
@@ -565,6 +599,58 @@ body {
     font-size: 0.85rem;
     color: #4ade80;
     font-weight: 500;
+}
+
+/* Revenue Toggle Switch */
+.revenue-toggle {
+    position: relative;
+    display: inline-block;
+    width: 40px;
+    height: 20px;
+}
+
+.revenue-toggle input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.revenue-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #ccc;
+    transition: .4s;
+    border-radius: 20px;
+}
+
+.revenue-slider:before {
+    position: absolute;
+    content: "";
+    height: 16px;
+    width: 16px;
+    left: 2px;
+    bottom: 2px;
+    background-color: white;
+    transition: .4s;
+    border-radius: 50%;
+}
+
+input:checked + .revenue-slider {
+    background-color: #d4af37;
+}
+
+input:checked + .revenue-slider:before {
+    transform: translateX(20px);
+}
+
+.revenue-hidden {
+    filter: blur(8px);
+    user-select: none;
+    pointer-events: none;
 }
 
 /* Content Grid */
@@ -1235,8 +1321,17 @@ tr:hover {
             <div class="change"></div>
         </div>
         <div class="stat-card">
-            <h3>Ricavi Totali</h3>
-            <div class="value" id="stat-ricavi">€<?php echo number_format($totale_ricavi, 2); ?></div>
+            <h3>
+                Ricavi Totali
+                <form method="POST" style="display: inline;">
+                    <label class="revenue-toggle">
+                        <input type="checkbox" <?php echo $revenue_hidden ? '' : 'checked'; ?> onchange="this.form.submit()">
+                        <input type="hidden" name="toggle_revenue_visibility" value="1">
+                        <span class="revenue-slider"></span>
+                    </label>
+                </form>
+            </h3>
+            <div class="value <?php echo $revenue_hidden ? 'revenue-hidden' : ''; ?>" id="stat-ricavi">€<?php echo number_format($totale_ricavi, 2); ?></div>
             <div class="change"></div>
         </div>
     </div>
@@ -1353,7 +1448,7 @@ tr:hover {
                 </select>
             </div>
             <?php if (!empty($ricavi_tutti_giorni)): ?>
-                <div class="table-container">
+                <div class="table-container <?php echo $revenue_hidden ? 'revenue-hidden' : ''; ?>">
                     <table id="tabella_ricavi" class="revenue-table">
                         <thead>
                             <tr><th>Data</th><th>Ricavi</th></tr>
@@ -1454,6 +1549,7 @@ tr:hover {
 let lastBookingId = 0;
 let updateInterval;
 let isUpdating = false;
+let currentDateFilter = '';
 
 // Initialize real-time updates
 function initRealTimeUpdates() {
@@ -1518,6 +1614,10 @@ function updateBookingsTable() {
         .then(response => response.text())
         .then(html => {
             document.getElementById('bookings-table-body').innerHTML = html;
+            // Reapply the current filter if one is set
+            if (currentDateFilter) {
+                filtraPrenotazioni(currentDateFilter);
+            }
         })
         .catch(error => {
             console.error('Error updating bookings table:', error);
@@ -1592,6 +1692,7 @@ function filtraRicavi(data) {
 }
 
 function filtraPrenotazioni(data) {
+    currentDateFilter = data; // Store the current filter
     const rows = document.querySelectorAll('.table-container table tbody tr');
     rows.forEach(row => {
         if (!data) {
@@ -1672,3 +1773,4 @@ window.addEventListener('orientationchange', () => {
 </script>
 </body>
 </html>
+```
